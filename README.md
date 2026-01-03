@@ -1,3 +1,4 @@
-# ATCMcontrol_RunTimeSystem
-FarosPLC (a.k.a. ATCMcontrol RunTimeSystem): the PLC "engine" running on the embedded target
+# FarosPLCcore (aka ATCMcontrol\_RunTimeSystem core)
 
+PLC variables management, exchange with HMI via udp, Modbus fieldbus via rtu and tcp, but without any PLC engine itself.
+Forked from MECTsrl/ATCMcontrol\_RunTimeSystem

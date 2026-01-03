@@ -128,6 +128,7 @@ add_executable(FarosPLC main.c ${BUILD_SOURCES})
 
 target_include_directories(FarosPLC INTERFACE ${CMAKE_SOURCE_DIR})
 target_compile_definitions(FarosPLC PUBLIC _SOF_4CPC_SRC_)
+target_compile_definitions(FarosPLC PUBLIC TP3000)
 target_link_libraries(FarosPLC ${CMAKE_THREAD_LIBS_INIT} rt m)
 
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static")

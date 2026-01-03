@@ -1217,14 +1217,17 @@ typedef struct
 #if defined(TP1000)
 #define XX_GPIO_MAX 18
 #define XX_GPIO_MAX_TEST 8
+
 #elif defined(TP2000)
 #define XX_GPIO_MAX 0
 #define XX_GPIO_MAX_TEST 0
 #warning missing implementation
+
 #elif defined(TP3000)
 #define XX_GPIO_MAX 0
 #define XX_GPIO_MAX_TEST 0
 #warning missing implementation
+
 #elif defined(DESKTOP)
 #define XX_GPIO_MAX 0
 #define XX_GPIO_MAX_TEST 0
