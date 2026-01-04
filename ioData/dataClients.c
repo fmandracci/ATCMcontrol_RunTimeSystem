@@ -24,6 +24,8 @@
 
 #define __4CFILE__	"dataClients.c"
 
+#undef VERBOSE_DEBUG
+
 /* ---------------------------------------------------------------------------- */
 
 static const char *deviceStatusName[] = {"ZERO", "NOT_CONNECTED", "CONNECTED", "CONNECTED_WITH_ERRORS", "DEVICE_BLACKLIST", "NO_HOPE" };
@@ -38,7 +40,7 @@ static void doWriteDeviceRetentives(u_int32_t d);
 static inline void changeDeviceStatus(u_int32_t d, enum DeviceStatus status);
 static inline void changeNodeStatus(u_int32_t d, u_int16_t node, enum NodeStatus status);
 
-static unsigned checkAddr(unsigned d, unsigned DataAddr, unsigned DataNumber);
+static unsigned checkAddr(unsigned d, unsigned DataAddr, unsigned DataNumber, int writing);
 
 static void startDeviceTiming(u_int32_t d);
 static inline void updateDeviceTiming(u_int32_t d);
@@ -58,8 +60,8 @@ static inline void set_dword_bit(u_int32_t *data, unsigned n, unsigned value);
 
 void *clientThread(void *arg)
 {
-    struct ClientStruct *theDevice = (struct ClientStruct *)arg;
-    u_int32_t d = (theDevice - &theDevices[0]) / sizeof(struct ClientStruct);
+    u_int32_t d = (u_int32_t)arg;
+    struct ClientStruct *theDevice = &theDevices[d];
     u_int16_t v;
 
     // device connection management
@@ -116,7 +118,7 @@ void *clientThread(void *arg)
                     CrossTable[addr].Offset = CANopenGetVarIndex(CrossTable[addr].Port, CrossTable[addr].Tag);
                 }
 #ifdef VERBOSE_DEBUG
-                fprintf(stderr, "CANOPEN %u.%u '%s' %u\n", CrossTable[addr].Port, CrossTable[addr].NodeId, CrossTable[addr].Tag, CrossTable[addr].Offset);
+                fprintf(stderr, "[%s]: CANOPEN %u.%u '%s' %u\n", __func__, CrossTable[addr].Port, CrossTable[addr].NodeId, CrossTable[addr].Tag, CrossTable[addr].Offset);
 #endif
             }
         }
@@ -169,7 +171,7 @@ void *clientThread(void *arg)
     }
 
     // ------------------------------------------ run
-    fprintf(stderr, "%s: ", theDevice->name);
+    fprintf(stderr, "[%s]: d=%u, %s: ", __func__, d, theDevice->name);
     switch (theDevice->protocol) {
     case PLC: // FIXME: assert
         break;
@@ -207,7 +209,7 @@ void *clientThread(void *arg)
         }
     }
     if (verbose_print_enabled) {
-        fprintf(stderr, "%s: reading variables {", theDevice->name);
+        fprintf(stderr, "[%s]: %s: reading variables {", __func__, theDevice->name);
         for (prio = 0; prio < MAX_PRIORITY; ++prio) {
             if (we_have_variables[prio]) {
                 fprintf(stderr, "\n\t%u:", prio + 1);
@@ -247,7 +249,7 @@ void *clientThread(void *arg)
             continue;
         }
 
-        // was I already doing something?
+        // was I doing nothing before?
         if (DataAddr == 0) {
             int rc;
             RTIME next_ns;
@@ -268,6 +270,9 @@ void *clientThread(void *arg)
                 struct timespec abstime;
                 TIMESPEC_FROM_RTIME(abstime, next_ns);
 
+#ifdef VERBOSE_DEBUG
+                fprintf(stderr, "[%s]: %s@%09llu ns: waiting until (next_ns=%09llu ns)\n", __func__, theDevice->name, theDevice->current_time_ns, next_ns);
+#endif
                 do {
                     int saved_errno;
                     // XX_GPIO_CLR_69(d);
@@ -281,9 +286,9 @@ void *clientThread(void *arg)
                     errno = saved_errno;
                     if (errno ==  EINVAL) {
 #if __SIZEOF_POINTER__ == 4 /* 32 bit */
-                        fprintf(stderr, "%s@%09llu ms: problem with (%lds, %ldns).\n",
+                        fprintf(stderr, "[%s]: %s@%09llu ms: problem with (%lds, %ldns).\n", __func__,
 #elif __SIZEOF_POINTER__ == 8 /* 64 bit */
-                        fprintf(stderr, "%s@%09lu ms: problem with (%lds, %ldns).\n",
+                        fprintf(stderr, "[%s]: %s@%09lu ms: problem with (%lds, %ldns).\n", __func__,
 #else
 #error unknown size
 #endif
@@ -328,7 +333,7 @@ void *clientThread(void *arg)
 #endif
             } else {
 #ifdef VERBOSE_DEBUG
-                fprintf(stderr, "%s@%09u ms: immediate restart\n", theDevice->name, theDevice->current_time_ms);
+                fprintf(stderr, "[%s]: %s@%09llu ns: immediate restart (next_ns=%09llu ns)\n", __func__, theDevice->name, theDevice->current_time_ns, next_ns);
 #endif
             }
         }
@@ -349,7 +354,7 @@ void *clientThread(void *arg)
                     DataNumber = theDevice->PLCwriteRequests[theDevice->PLCwriteRequestGet].Number;
                     readOperation = FALSE;
                     // check
-                    DataAddr = checkAddr(d, DataAddr, DataNumber);
+                    DataAddr = checkAddr(d, DataAddr, DataNumber, TRUE);
                     if (DataAddr > 0) {
                         for (n = 0; n < DataNumber; ++n) {
                             DataValue[n] = theDevice->PLCwriteRequests[theDevice->PLCwriteRequestGet].Values[n];
@@ -362,7 +367,7 @@ void *clientThread(void *arg)
 
                     setDiagnostic(theDevice->diagnosticAddr, DIAGNOSTIC_WRITE_QUEUE, theDevice->PLCwriteRequestNumber);
 #ifdef VERBOSE_DEBUG
-                    fprintf(stderr, "%s@%09u ms: write PLC [%u], there are still %u\n", theDevice->name, theDevice->current_time_ms, DataAddr, theDevice->PLCwriteRequestNumber);
+                    fprintf(stderr, "[%s]: %s@%09llu ns: write PLC [%u], there are still %u\n", __func__, theDevice->name, theDevice->current_time_ns, DataAddr, theDevice->PLCwriteRequestNumber);
 #endif
                 }
 
@@ -436,7 +441,7 @@ void *clientThread(void *arg)
             // nothing to do
             continue;
         }
-        DataAddr = checkAddr(d, DataAddr, DataNumber);
+        DataAddr = checkAddr(d, DataAddr, DataNumber, ! readOperation);
         if (DataAddr == 0) {
             // skip
             continue;
@@ -534,12 +539,13 @@ void *clientThread(void *arg)
         } else if (theNodes[Data_node].status == DISCONNECTED || theNodes[Data_node].status == BLACKLIST) {
             error = TimeoutError;
 #ifdef VERBOSE_DEBUG
-              if (theDevice->protocol == RTU /*&& theDevice->port == 0 && theDevice->u.serial.baudrate == 38400*/) {
-                fprintf(stderr, "%s@%09u ms: %s (blacklist) %u vars @ %u\n",
-                        theDevice->name, theDevice->current_time_ms,
-                        Operation == READ ? "read" : "write",
+            if (theDevice->protocol == RTU /*&& theDevice->port == 0 && theDevice->u.serial.baudrate == 38400*/) {
+                fprintf(stderr, "[%s]: %s@%09llu ns: %s (blacklist) %u vars @ %u\n",
+                        __func__,
+                        theDevice->name, theDevice->current_time_ns,
+                        readOperation ? "read" : "write",
                         DataNumber, DataAddr);
-              }
+            }
 #endif
         } else if (theNodes[Data_node].status == NODE_DISABLED) {
             unsigned i;
@@ -577,8 +583,9 @@ void *clientThread(void *arg)
             // XX_GPIO_SET_69(d);
 #ifdef VERBOSE_DEBUG
             if (theDevice->protocol == RTU /*&& theDevice->port == 0 && theDevice->u.serial.baudrate == 38400*/) {
-            fprintf(stderr, "%s@%09u ms: %s %s %u vars @ %u\n", theDevice->name, theDevice->current_time_ms,
-                    Operation == READ ? "read" : "write",
+            fprintf(stderr, "[%s]: %s@%09llu ns: %s %s %u vars @ %u\n",
+                    __func__, theDevice->name, theDevice->current_time_ns,
+                    readOperation ? "read" : "write",
                     error == NoError ? "ok" : "error",
                     DataNumber, DataAddr);
             }
@@ -830,7 +837,7 @@ void *clientThread(void *arg)
     }
     // exit
     // XX_GPIO_CLR_69(d);
-    fprintf(stderr, "EXITING: %s\n", theDevice->name);
+    fprintf(stderr, "[%s]: EXITING %s\n", __func__, theDevice->name);
     theDevice->thread_status = EXITING;
     return arg;
 }
@@ -896,7 +903,7 @@ static enum fieldbusError fieldbusRead(u_int16_t d, u_int16_t DataAddr, u_int32_
             retval = CommError;
             break;
         }
-        __attribute__ ((fallthrough)); // no break, continue in the following code
+        // fall through
     case RTU_SRV:
     case TCP_SRV:
     case TCPRTU_SRV:
@@ -944,7 +951,7 @@ static enum fieldbusError fieldbusRead(u_int16_t d, u_int16_t DataAddr, u_int32_
                     pthread_mutex_unlock(&theServers[server].mutex);
 #ifdef VERBOSE_DEBUG
                     if (theDevices[d].protocol == TCP_SRV) {
-                        fprintf(stderr, "%s read %u (%u) vars from %u (%s)\n", theDevices[d].name, DataNumber, regs, DataAddr, CrossTable[DataAddr].Tag);
+                        fprintf(stderr, "[%s]: %s read %u (%u) vars from %u (%s)\n", __func__, theDevices[d].name, DataNumber, regs, DataAddr, CrossTable[DataAddr].Tag);
                     }
 #endif
                 }
@@ -1089,7 +1096,7 @@ static enum fieldbusError fieldbusRead(u_int16_t d, u_int16_t DataAddr, u_int32_
                 retval = CommError;
             }
             if (verbose_print_enabled) {
-                fprintf(stderr, "fieldbusRead(%d, %u, %u): %d,%d(%s) --> %d\n",
+                fprintf(stderr, "[%s]: (%d, %u, %u): %d,%d(%s) --> %d\n", __func__,
                     d, DataAddr, DataNumber,
                     e, errno, modbus_strerror(errno),
                     retval);
@@ -1183,8 +1190,7 @@ static enum fieldbusError fieldbusRead(u_int16_t d, u_int16_t DataAddr, u_int32_
                    }
                 }
 #ifdef VERBOSE_DEBUG
-                fprintf(stderr, "%s: %s %s (%u)\n", theDevices[d].name, CrossTable[DataAddr + i].Tag,
-                        e ? "err" : "ok", DataValue[i]);
+                fprintf(stderr, "[%s]: %s: %s %s (%u)\n", __func__, theDevices[d].name, CrossTable[DataAddr + i].Tag, e ? "err" : "ok", DataValue[i]);
 #endif
             if (e) {
                 if (e == -1) { // OTHER_ERROR
@@ -1216,14 +1222,14 @@ static enum fieldbusError fieldbusRead(u_int16_t d, u_int16_t DataAddr, u_int32_
                 e = mect_read_ascii(theDevices[d].mect_fd, CrossTable[DataAddr + i].NodeId, CrossTable[DataAddr + i].Offset, &value);
                 memcpy(&DataValue[i], &value, sizeof(u_int32_t));
                 if (verbose_print_enabled) {
-                    fprintf(stderr, "%s: %s=%f err=%d\n", theDevices[d].name, CrossTable[DataAddr + i].Tag, value, e);
+                    fprintf(stderr, "[%s]: %s, %s=%f err=%d\n", __func__, theDevices[d].name, CrossTable[DataAddr + i].Tag, value, e);
                 }
             } else if (CrossTable[DataAddr + i].Types == UINT16) {
                 unsigned value = 0;
                 e = mect_read_hexad(theDevices[d].mect_fd, CrossTable[DataAddr + i].NodeId, CrossTable[DataAddr + i].Offset, &value);
                 DataValue[i] = value;
                 if (verbose_print_enabled) {
-                    fprintf(stderr, "%s: %s=0x%04x err=%d\n", theDevices[d].name, CrossTable[DataAddr + i].Tag, value, e);
+                    fprintf(stderr, "[%s]: %s, %s=0x%04x err=%d\n", __func__, theDevices[d].name, CrossTable[DataAddr + i].Tag, value, e);
                 }
             }
             if (e == -1) {
@@ -1260,7 +1266,7 @@ static enum fieldbusError fieldbusWrite(u_int16_t d, u_int16_t DataAddr, u_int32
             retval = CommError;
             break;
         }
-        __attribute__ ((fallthrough)); // no break, continue in the following code
+        // fall through
     case RTU_SRV:
     case TCP_SRV:
     case TCPRTU_SRV:
@@ -1430,15 +1436,14 @@ static enum fieldbusError fieldbusWrite(u_int16_t d, u_int16_t DataAddr, u_int32
                 }
             }
 #ifdef VERBOSE_DEBUG
-        {
-            int z;
-            fprintf(stderr, "%s wrote %u (%u) vars from %u (%s)\n", theDevices[d].name, DataNumber, regs, DataAddr, CrossTable[DataAddr].Tag);
-            for (z = 0; z < regs; ++z) {
-                fprintf(stderr, "\t%02d: 0x%04x\n", z, uintRegs[z]);
+            {
+                int z;
+                fprintf(stderr, "[%s]: %s wrote %u (%u) vars from %u (%s)\n", __func__, theDevices[d].name, DataNumber, regs, DataAddr, CrossTable[DataAddr].Tag);
+                for (z = 0; z < regs; ++z) {
+                    fprintf(stderr, "\t%02d: 0x%04x\n", z, uintRegs[z]);
+                }
+                fprintf(stderr, "\tresult = %02d\n", e);
             }
-            fprintf(stderr, "\tresult = %02d\n", e);
-
-        }
 #endif
             break;
         case RTU_SRV:
@@ -1479,12 +1484,12 @@ static enum fieldbusError fieldbusWrite(u_int16_t d, u_int16_t DataAddr, u_int32
             } else {
                 retval = CommError;
             }
-        if (verbose_print_enabled) {
-            fprintf(stderr, "fieldbusWrite(%d, %u, %u): %d,%d(%s) --> %d\n",
-                d, DataAddr, DataNumber,
-                e, errno, modbus_strerror(errno),
-                retval);
-        }
+            if (verbose_print_enabled) {
+                fprintf(stderr, "fieldbusWrite(%d, %u, %u): %d,%d(%s) --> %d\n",
+                    d, DataAddr, DataNumber,
+                    e, errno, modbus_strerror(errno),
+                    retval);
+            }
         }
         break;
     case CANOPEN:
@@ -1638,7 +1643,7 @@ static inline void changeDeviceStatus(u_int32_t d, enum DeviceStatus status)
     enum DeviceStatus previous_status;
 
     if (verbose_print_enabled) {
-        fprintf(stderr, "%s: status = %s\n", theDevices[d].name, deviceStatusName[status]);
+        fprintf(stderr, "[%s]: %s: status = %s\n", __func__, theDevices[d].name, deviceStatusName[status]);
     }
     previous_status = theDevices[d].status;
     theDevices[d].status = status;
@@ -1700,7 +1705,7 @@ static inline void changeNodeStatus(u_int32_t d, u_int16_t node, enum NodeStatus
     int n;
 
     if (verbose_print_enabled) {
-        fprintf(stderr, "node #%02u: status = %s\n", node+1, nodeStatusName[status]);
+        fprintf(stderr, "[%s]: node #%02u: status = %s\n", __func__, node+1, nodeStatusName[status]);
     }
     theNodes[node].status = status;
     setDiagnostic(theNodes[node].diagnosticAddr, DIAGNOSTIC_NODE_STATUS, theNodes[node].status);
@@ -1734,20 +1739,20 @@ static inline void changeNodeStatus(u_int32_t d, u_int16_t node, enum NodeStatus
 
 /* ---------------------------------------------------------------------------- */
 
-static unsigned checkAddr(unsigned d, unsigned DataAddr, unsigned DataNumber)
+static unsigned checkAddr(unsigned d, unsigned DataAddr, unsigned DataNumber, int writing)
 {
     unsigned n;
 
     if (DataAddr == 0 || DataAddr > DimCrossTable) {
-        fprintf(stderr, "clientThread(%u) wrong DataAddr %u[%u]\n", d, DataAddr, DataNumber);
+        fprintf(stderr, "[%s]: clientThread(%u) wrong DataAddr %u[%u]\n", __func__, d, DataAddr, DataNumber);
         return 0;
     } else if (DataNumber == 0 || DataNumber > MAX_VALUES || (DataAddr + DataNumber) > DimCrossTable) {
-        fprintf(stderr, "clientThread(%u) wrong DataNumber %u[%u]\n", d, DataAddr, DataNumber);
+        fprintf(stderr, "[%s]: clientThread(%u) wrong DataNumber %u[%u]\n", __func__, d, DataAddr, DataNumber);
         return 0;
     } else {
         for (n = 0; n < DataNumber; ++n) {
             if (CrossTable[DataAddr + n].device != d) {
-                fprintf(stderr, "clientThread(%u) wrong device %u @(%u+%u)\n", d, CrossTable[DataAddr + n].device, DataAddr, n);
+                fprintf(stderr, "[%s]: clientThread(%u) wrong device %u @(%u+%u), while %s\n", __func__, d, CrossTable[DataAddr + n].device, DataAddr, n, writing ? "writing" : "reading");
                 return 0;
             }
         }

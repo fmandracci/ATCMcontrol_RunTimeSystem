@@ -92,21 +92,21 @@ HmiClient *newHmiClient(const char *hostname)
 
         client->udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
         if (client->udpSocket < 0) {
-            fprintf(stderr, "%s() socket failure\n", __func__);
+            fprintf(stderr, "[%s]: socket failure\n", __func__);
             goto exit_failure;
         }
         if (! hostname ) {
             hostname = DEFAULT_HOSTNAME;
-            // fprintf(stderr, "%s() using default plc hostname '%s'\n", __func__, hostname);
+            // fprintf(stderr, "[%s]: using default plc hostname '%s'\n", __func__, hostname);
         }
         client->hostname = strdup(hostname);
         if (! client->hostname ) {
-            fprintf(stderr, "%s() strdup failure\n", __func__);
+            fprintf(stderr, "[%s]: strdup failure\n", __func__);
             goto exit_failure;
         }
         host = gethostbyname(client->hostname);
         if (! host) {
-            fprintf(stderr, "%s() gethostbyname failure\n", __func__);
+            fprintf(stderr, "[%s]: gethostbyname failure\n", __func__);
             goto exit_failure;
         }
         client->plcAddress.sin_family = host->h_addrtype;
@@ -146,7 +146,7 @@ int hmiClientPoll(const HmiClient *client, const HmiPlcBlock *hmiBlock, HmiPlcBl
         bytes = sendto(client->udpSocket, hmiBlock, sizeof(HmiPlcBlock),
                        0, (struct sockaddr *)&client->plcAddress, sizeof(client->plcAddress));
         if (bytes != sizeof(HmiPlcBlock)) {
-            fprintf(stderr, "%s() sendto failure bytes=%zd (%u)\n", __func__, bytes, sizeof(HmiPlcBlock));
+            fprintf(stderr, "[%s]: sendto failure bytes=%zd (%u)\n", __func__, bytes, sizeof(HmiPlcBlock));
             retval = -1; // send error
 
         } else {
@@ -163,10 +163,11 @@ int hmiClientPoll(const HmiClient *client, const HmiPlcBlock *hmiBlock, HmiPlcBl
 
                 e = select(client->udpSocket + 1, &recv_set, NULL, NULL, &tv);
                 if (e == 0) {
+                    fprintf(stderr, "[%s]: timeout error (%u ms)\n", __func__, timeout_ms);
                     retval = -2; // timeout error
 
                 } else if (e < 0) {
-                    fprintf(stderr, "%s() select failure e=%d\n", __func__, e);
+                    fprintf(stderr, "[%s]: select failure e=%d\n", __func__, e);
                     retval = -3; // select error
 
                 } else {
@@ -178,18 +179,19 @@ int hmiClientPoll(const HmiClient *client, const HmiPlcBlock *hmiBlock, HmiPlcBl
                     bytes = recvfrom(client->udpSocket, plcBlock, sizeof(HmiPlcBlock),
                                      0, (struct sockaddr *)&udpAddress, &len);
                     if (bytes != sizeof(HmiPlcBlock) || bytes != plcBlock->bytes) {
-                        fprintf(stderr, "%s() recvfrom failure: bytes=%zd,%d (%u)\n", __func__,
+                        fprintf(stderr, "[%s]: recvfrom failure: bytes=%zd,%d (%u)\n", __func__,
                                 bytes, plcBlock->bytes, sizeof(HmiPlcBlock));
                         retval = -4; // size error
 
                     } else if (plcBlock->seqnum != hmiBlock->seqnum) {
-                        fprintf(stderr, "%s() recvfrom failure: seqnum=0x%08x (0x%08x)\n", __func__,
+                        fprintf(stderr, "[%s]: recvfrom failure: seqnum=0x%08x (0x%08x)\n", __func__,
                                 plcBlock->seqnum, hmiBlock->seqnum);
+                        fputc('#', stderr);
                         retval = -5; // sequence error
 
                     } else if (udpAddress.sin_addr.s_addr != client->plcAddress.sin_addr.s_addr
                                || udpAddress.sin_port != htons(PLC_UDP_PORT)) {
-                        fprintf(stderr, "%s() recvfrom failure: from=0x%08x.%u (0x%08x.%u)\n", __func__,
+                        fprintf(stderr, "[%s]: recvfrom failure: from=0x%08x.%u (0x%08x.%u)\n", __func__,
                                 udpAddress.sin_addr.s_addr, udpAddress.sin_port, client->plcAddress.sin_addr.s_addr, htons(PLC_UDP_PORT));
                         retval = -6; // address.port error
 
@@ -214,7 +216,7 @@ PlcServer *newPlcServer()
 
         server->udpSocket = socket(AF_INET, SOCK_DGRAM, 0);
         if (server->udpSocket < 0) {
-            fprintf(stderr, "%s() socket failure\n", __func__);
+            fprintf(stderr, "[%s]: socket failure\n", __func__);
             goto exit_failure;
         }
         bzero(&selfAddress, sizeof(selfAddress));
@@ -222,16 +224,18 @@ PlcServer *newPlcServer()
         selfAddress.sin_addr.s_addr = htonl(INADDR_ANY);
         selfAddress.sin_port = htons((u_short)PLC_UDP_PORT);
         if (bind(server->udpSocket, (struct sockaddr *)&selfAddress, sizeof(selfAddress)) < 0) {
-            fprintf(stderr, "%s() bind failure\n", __func__);
+            fprintf(stderr, "[%s]: bind failure\n", __func__);
             goto exit_failure;
         }
     }
-    fprintf(stderr, "%s() success\n", __func__);
+#ifdef VERBOSE_DEBUG
+    fprintf(stderr, "[%s]: success\n", __func__);
+#endif
     return server;
 
 exit_failure:
     deletePlcServer(server);
-    fprintf(stderr, "%s() failure\n", __func__);
+    fprintf(stderr, "[%s]: failure\n", __func__);
     return NULL;
 }
 
@@ -265,7 +269,7 @@ int plcServerWait(PlcServer *server, HmiPlcBlock *hmiBlock, unsigned timeout_ms)
             retval = -2; // timeout error (skipping '-1 send error')
 
         } else if (e < 0) {
-            fprintf(stderr, "%s() select failure e=%d\n", __func__, e);
+            fprintf(stderr, "[%s]: select failure e=%d\n", __func__, e);
             retval = -3; // select error
 
         } else {
@@ -278,7 +282,7 @@ int plcServerWait(PlcServer *server, HmiPlcBlock *hmiBlock, unsigned timeout_ms)
                      0, (struct sockaddr *)&server->hmiAddress, &server->hmiAddressLen);
 
             if (bytes != sizeof(HmiPlcBlock) || bytes != hmiBlock->bytes) {
-                fprintf(stderr, "%s() recvfrom failure: bytes=%zd,%d (%u)\n", __func__,
+                fprintf(stderr, "[%s]: recvfrom failure: bytes=%zd,%d (%u)\n", __func__,
                         bytes, hmiBlock->bytes, sizeof(HmiPlcBlock));
                 retval = -4; // size error
 
@@ -304,7 +308,7 @@ int plcServerReply(const PlcServer *server, const HmiPlcBlock *plcBlock)
         bytes = sendto(server->udpSocket, plcBlock, sizeof(HmiPlcBlock),
                        0, (struct sockaddr *)&server->hmiAddress, server->hmiAddressLen);
         if (bytes != sizeof(HmiPlcBlock)) {
-            fprintf(stderr, "%s() sendto failure bytes=%zd (%u)\n", __func__, bytes, sizeof(HmiPlcBlock));
+            fprintf(stderr, "[%s]: sendto failure bytes=%zd (%u)\n", __func__, bytes, sizeof(HmiPlcBlock));
             retval = -1; // send error
 
         } else {

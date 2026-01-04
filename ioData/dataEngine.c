@@ -89,7 +89,7 @@ static inline void clearAlarmEvent(int i);
 static inline void checkAlarmEvent(int i, int condition);
 static void AlarmMngr(void);
 
-static unsigned plc_product_id();
+static unsigned plc_product_id(unsigned *msVersion);
 static unsigned plc_serial_number();
 
 /* ---------------------------------------------------------------------------- */
@@ -133,9 +133,11 @@ void engineInit()
     VAR_VALUE(PLC_TOUCH_VOLUME) = 0x00000064; // duty=100%
     VAR_VALUE(PLC_ALARM_VOLUME) = 0x00000064; // duty=100%
 
-    // P/N and S/N
-    VAR_VALUE(PLC_PRODUCT_ID) = plc_product_id();
+    // P/N and S/N and MS VERSION
+    unsigned msVer = 0;
+    VAR_VALUE(PLC_PRODUCT_ID) = plc_product_id(&msVer);
     VAR_VALUE(PLC_SERIAL_NUMBER) = plc_serial_number();
+    VAR_VALUE(PLC_MS_VERSION) = msVer;
 
     // retentive variables
 #if defined(RTS_CFG_MECT_RETAIN)
@@ -211,24 +213,30 @@ void *engineThread(void *statusAdr)
 
         // create servers
         for (s = 0; s < theServersNumber; ++s) {
+            void *arg = (void *)s;
+
             theServers[s].thread_status = NOT_STARTED;
-            if (osPthreadCreate(&theServers[s].thread_id, NULL, &serverThread, &theServers[s], theServers[s].name, 0) == 0) {
+            if (osPthreadCreate(&theServers[s].thread_id, NULL, &serverThread, arg, theServers[s].name, 0) == 0) {
                 do {
                     osSleep(THE_CONFIG_DELAY_ms); // not sched_yield();
                 } while (theServers[s].thread_status != RUNNING);
             } else {
-                fprintf(stderr, "[%s] ERROR creating server thread %s: %s.\n", __func__, theServers[s].name, strerror(errno));
+                fprintf(stderr, "[%s]: ERROR creating server thread %s: %s.\n", __func__, theServers[s].name, strerror(errno));
             }
         }
         // create clients
         for (d = 0; d < theDevicesNumber; ++d) {
+            void *arg = (void *)d;
+
             theDevices[d].thread_status = NOT_STARTED;
-            if (osPthreadCreate(&theDevices[d].thread_id, NULL, &clientThread, &theDevices[d], theDevices[d].name, 0) == 0) {
+            if (osPthreadCreate(&theDevices[d].thread_id, NULL, &clientThread, arg, theDevices[d].name, 0) == 0) {
                 do {
                     osSleep(THE_CONFIG_DELAY_ms); // not sched_yield();
                 } while (theDevices[d].thread_status != RUNNING);
+                if (verbose_print_enabled)
+                    fprintf(stderr, "[%s]: device thread %s: is up and running.\n", __func__, theDevices[d].name);
             } else {
-                fprintf(stderr, "[%s] ERROR creating device thread %s: %s.\n", __func__, theDevices[d].name, strerror(errno));
+                fprintf(stderr, "[%s]: ERROR creating device thread %s: %s.\n", __func__, theDevices[d].name, strerror(errno));
             }
         }
         // create udp server
@@ -249,7 +257,9 @@ void *engineThread(void *statusAdr)
     pthread_mutex_unlock(&theCrosstableClientMutex);
 
     if (allOK) {
-        fprintf(stderr, "PLC engine is running\n");
+#ifdef VERBOSE_DEBUG
+        fprintf(stderr, "[%s]: PLC engine is running\n", __func__);
+#endif
         setEngineStatus(enRunning);
     } else {
         fprintf(stderr, "**********************************************************\n");
@@ -275,7 +285,7 @@ void *engineThread(void *statusAdr)
         tic_ns = rt_timer_read();
     }
     VAR_VALUE(PLC_UPTIME_cs) = tic_ns / DIECI_MILIONI_UL;
-    VAR_VALUE(PLC_UPTIME_s) = VAR_VALUE(PLC_UPTIME_cs) / 100UL;
+    VAR_VALUE(PLC_UPTIME_s) = tic_ns / UN_MILIARDO_ULL;
 
     pthread_mutex_lock(&theCrosstableClientMutex);
     *threadStatusPtr = RUNNING;
@@ -311,7 +321,7 @@ void *engineThread(void *statusAdr)
                 tic_ns = rt_timer_read();
             }
             VAR_VALUE(PLC_UPTIME_cs) = tic_ns / DIECI_MILIONI_UL;
-            VAR_VALUE(PLC_UPTIME_s) = VAR_VALUE(PLC_UPTIME_cs) / 100UL;
+            VAR_VALUE(PLC_UPTIME_s) = tic_ns / UN_MILIARDO_ULL;
 
             // XX_GPIO_SET(1);
             if (e == ETIMEDOUT) {
@@ -368,6 +378,7 @@ void *engineThread(void *statusAdr)
 
         if (VAR_VALUE(PLC_ResetValues)) {
             u_int16_t addr;
+
             for (addr = 5000; addr < 5160; addr += 10) {
                 VAR_VALUE(addr + 3) = 0; // READS
                 VAR_VALUE(addr + 4) = 0; // WRITES
@@ -458,7 +469,7 @@ void *engineThread(void *statusAdr)
 
     // exit
     // XX_GPIO_CLR(1);
-    fprintf(stderr, "EXITING: engineThread\n");
+    fprintf(stderr, "[%s]: EXITING\n", __func__);
     *threadStatusPtr = EXITING;
     return NULL;
 }
@@ -507,7 +518,7 @@ static int LoadXTable(void)
     }
 
     // open file
-    fprintf(stderr, "loading '%s' ...", CROSSTABLE_CSV);
+    fprintf(stderr, "[%s]: loading '%s' ...", __func__, CROSSTABLE_CSV);
     xtable = fopen(CROSSTABLE_CSV, "r");
     if (xtable == NULL)  {
         ERR = TRUE;
@@ -765,7 +776,7 @@ static int LoadXTable(void)
     }
 
     // check alarms and events
-    fprintf(stderr, "\nalarms/events:\n");
+    fprintf(stderr, "\n[%s]: ... alarms/events:\n", __func__);
     for (indx = 1; indx <= lastAlarmEvent; ++indx) {
         // retrieve the source variable address
         addr = tagAddr(ALCrossTable[indx].ALSource);
@@ -832,8 +843,8 @@ static int LoadXTable(void)
         default             : ;
         }
 
-        if (ALCrossTable[lastAlarmEvent].ALOperator != OPER_FALLING
-         && ALCrossTable[lastAlarmEvent].ALOperator != OPER_RISING) {
+        if (ALCrossTable[indx].ALOperator != OPER_FALLING
+         && ALCrossTable[indx].ALOperator != OPER_RISING) {
 
             // if the comparison is with a variable
             if (ALCrossTable[indx].ALCompareVar[0] != 0) {
@@ -1111,7 +1122,7 @@ exit_function:
     if (xtable) {
         fclose(xtable);
     }
-    fprintf(stderr, " %s\n", (ERR) ? "ERROR" : "OK");
+    fprintf(stderr, "\n[%s]: ... %s\n", __func__, (ERR) ? "ERROR" : "OK");
     return ERR;
 }
 
@@ -1161,7 +1172,7 @@ static int checkServersDevicesAndNodes()
             // check
             if (strncmp(p, disable_all_nodes_true, strlen(disable_all_nodes_true)) == 0) {
                 disable_all_nodes = TRUE;
-                fprintf(stderr, "%s() disabling all nodes as requested\n", __func__);
+                fprintf(stderr, "[%s]: disabling all nodes as requested\n", __func__);
                 break;
             }
         }
@@ -1170,7 +1181,7 @@ static int checkServersDevicesAndNodes()
 
     // for each enabled variable
     u_int16_t i, base, block;
-    fprintf(stderr, "%s()\n", __func__);
+    fprintf(stderr, "[%s]: \n", __func__);
     for (i = 1, base = 1, block = 0; i <= DimCrossTable; ++i) {
 
         // find block base addresses
@@ -1207,12 +1218,12 @@ static int checkServersDevicesAndNodes()
                             char str1[42];
                             char str2[42];
                             fprintf(stderr,
-                                "%s() WARNING in variable #%u wrong 'IP Address' %s (should be %s)\n",
+                                "[%s]: WARNING in variable #%u wrong 'IP Address' %s (should be %s)\n",
                                 __func__, i, ipaddr2str(CrossTable[i].IPAddress, str2), ipaddr2str(theServers[s].IPaddress, str1));
                         }
                         if (theServers[s].NodeId != CrossTable[i].NodeId) {
                             fprintf(stderr,
-                                "%s() WARNING in variable #%u wrong 'Node ID' %u (should be %u)\n",
+                                "[%s]: WARNING in variable #%u wrong 'Node ID' %u (should be %u)\n",
                                 __func__, i, CrossTable[i].NodeId, theServers[s].NodeId);
                         }
                         break;
@@ -1230,17 +1241,17 @@ static int checkServersDevicesAndNodes()
                             char str1[42];
                             char str2[42];
                             fprintf(stderr,
-                                "%s() WARNING in variable #%u wrong 'IP Address' %s (should be %s)\n",
+                                "[%s]: WARNING in variable #%u wrong 'IP Address' %s (should be %s)\n",
                                 __func__, i, ipaddr2str(CrossTable[i].IPAddress, str2), ipaddr2str(theServers[s].IPaddress, str1));
                         }
                         if (theServers[s].port != CrossTable[i].Port) {
                             fprintf(stderr,
-                                "%s() WARNING in variable #%u wrong 'Port' %d (should be %u)\n",
+                                "[%s]: WARNING in variable #%u wrong 'Port' %d (should be %u)\n",
                                 __func__, i, CrossTable[i].Port, theServers[s].port);
                         }
                         if (theServers[s].NodeId != CrossTable[i].NodeId) {
                             fprintf(stderr,
-                                "%s() WARNING in variable #%u wrong 'Node ID' %u (should be %u)\n",
+                                "[%s]: WARNING in variable #%u wrong 'Node ID' %u (should be %u)\n",
                                 __func__, i, CrossTable[i].NodeId, theServers[s].NodeId);
                         }
                         break;
@@ -1250,7 +1261,7 @@ static int checkServersDevicesAndNodes()
                 if (s < theServersNumber) {
                     // ok already present
                 } else if (theServersNumber >= MAX_SERVERS) {
-                    fprintf(stderr, "%s() too many servers (max=%d)\n", __func__, MAX_SERVERS);
+                    fprintf(stderr, "[%s]: too many servers (max=%d)\n", __func__, MAX_SERVERS);
                     retval = -1;
                 } else {
                     // new server entry
@@ -1275,7 +1286,7 @@ static int checkServersDevicesAndNodes()
                         case 2:
                         case 3:
                             if (system_ini.serial_port[port].baudrate == 0) {
-                                fprintf(stderr, "%s: missing port %u in system.ini for RTU_SRV variable #%u\n", __func__, port, i);
+                                fprintf(stderr, "[%s]: missing port %u in system.ini for RTU_SRV variable #%u\n", __func__, port, i);
                                 retval = -1;
                             } else {
                                 theServers[s].u.serial.port = port;
@@ -1288,7 +1299,7 @@ static int checkServersDevicesAndNodes()
                             }
                             break;
                         default:
-                            fprintf(stderr, "%s: bad RTU_SRV port %u for variable #%u\n", __func__, port, i);
+                            fprintf(stderr, "[%s]: bad RTU_SRV port %u for variable #%u\n", __func__, port, i);
                             retval = -1;
                         }
                         theServers[s].ctx = NULL;
@@ -1376,7 +1387,7 @@ static int checkServersDevicesAndNodes()
                     theDevices[d].var_num += 1; // this one, also Htype
                 } else if (theDevicesNumber >= MAX_DEVICES) {
                     CrossTable[i].device = 0xffff; // FIXME: error
-                    fprintf(stderr, "%s() too many devices (max=%d)\n", __func__, MAX_DEVICES);
+                    fprintf(stderr, "[%s]: too many devices (max=%d)\n", __func__, MAX_DEVICES);
                     retval = -1;
                 } else {
                     // new device entry
@@ -1400,7 +1411,7 @@ static int checkServersDevicesAndNodes()
                         case 2:
                         case 3:
                             if (system_ini.serial_port[p].baudrate == 0) {
-                                fprintf(stderr, "%s: missing port %u in system.ini for RTU variable #%u\n", __func__, p, i);
+                                fprintf(stderr, "[%s]: missing port %u in system.ini for RTU variable #%u\n", __func__, p, i);
                                 retval = -1;
                             } else {
                                 theDevices[d].u.serial.port = p;
@@ -1414,7 +1425,7 @@ static int checkServersDevicesAndNodes()
                             }
                             break;
                         default:
-                            fprintf(stderr, "%s: bad %s port %u for variable #%u\n", __func__,
+                            fprintf(stderr, "[%s]: bad %s port %u for variable #%u\n", __func__,
                                     (theDevices[d].protocol == RTU ? "RTU" : "MECT"), p, i);
                             retval = -1;
                         }
@@ -1445,7 +1456,7 @@ static int checkServersDevicesAndNodes()
                             theDevices[d].max_block_size = system_ini.canopen[p].max_block_size;
                             break;
                         default:
-                            fprintf(stderr, "%s: bad CANOPEN port %u for variable #%u", __func__, p, i);
+                            fprintf(stderr, "[%s]: bad CANOPEN port %u for variable #%u", __func__, p, i);
                             retval = -1;
                         }
                         break;
@@ -1468,10 +1479,10 @@ static int checkServersDevicesAndNodes()
                     snprintf(theDevices[d].name, MAX_THREADNAME_LEN, "dev(%d)%s_0x%08x_%u", d, fieldbusName[theDevices[d].protocol], theDevices[d].IPaddress, theDevices[d].port);
                     if (theDevices[d].timeout_ms == 0 && theDevices[d].protocol == RTU) {
                         theDevices[d].timeout_ms = 300;
-                        fprintf(stderr, "%s: TimeOut of device '%s' forced to %u ms\n", __func__, theDevices[d].name, theDevices[d].timeout_ms);
+                        fprintf(stderr, "[%s]: TimeOut of device '%s' forced to %u ms\n", __func__, theDevices[d].name, theDevices[d].timeout_ms);
                     }
                     if (i == base && CrossTable[i].BlockSize > theDevices[d].max_block_size) {
-                        fprintf(stderr, "%s: warning: variable #%u block #%u size %u, exceeding max_block_size %u (%s)\n",
+                        fprintf(stderr, "[%s]: warning: variable #%u block #%u size %u, exceeding max_block_size %u (%s)\n",
                                 __func__, i, block, CrossTable[i].BlockSize, theDevices[d].max_block_size, theDevices[d].name);
                     }
                     theDevices[d].elapsed_time_ns = 0;
@@ -1506,7 +1517,7 @@ static int checkServersDevicesAndNodes()
                     CrossTable[i].node = n; // found
                 } else if (theNodesNumber >= MAX_NODES) {
                     CrossTable[i].node = 0xffff;
-                    fprintf(stderr, "%s() too many nodes (max=%d)\n", __func__, MAX_NODES);
+                    fprintf(stderr, "[%s]: too many nodes (max=%d)\n", __func__, MAX_NODES);
                     retval = -1;
                 } else {
                     // new node entry
@@ -1556,7 +1567,7 @@ static int checkServersDevicesAndNodes()
                         var_max[d] = 0;
                     }
                     if (theDevices[d].device_vars == NULL) {
-                        fprintf(stderr, "%s() memory full\n", __func__);
+                        fprintf(stderr, "[%s]: memory full\n", __func__);
                         retval = -1;
                         break;
                     }
@@ -1818,11 +1829,12 @@ static void AlarmMngr(void)
 
 /* ---------------------------------------------------------------------------- */
 
-static unsigned plc_product_id()
+static unsigned plc_product_id(unsigned *msVersion)
 {
     unsigned retval = 0xFFFFffff;
     FILE *f;
 
+    *msVersion = 0;
     f = fopen(ROOTFS_VERSION, "r");
     if (f) {
         char buf[42];
@@ -1831,8 +1843,15 @@ static unsigned plc_product_id()
 
         if (fgets(buf, 42, f) == NULL)
             goto close_file;
-        if (sscanf(buf, "Release: %5s", str) != 1)
+        if (sscanf(buf, "Release: %6s", str) != 1)
             goto close_file;
+        else {
+            // Get MS Version
+            if (sscanf(str, "%d.%d.%d", &x, &y, &z) == 3)  {
+                *msVersion = z | (y << 8) | (x << 16);;
+            }
+        }
+
         if (fgets(buf, 42, f) == NULL)
             goto close_file;
 
@@ -1845,7 +1864,12 @@ static unsigned plc_product_id()
         if (sscanf(buf, "Target: TP%x_%x_%x", &x, &y, &z) == 3)
             retval = ((x & 0xFFFF) << 16) + ((y & 0xFF) << 8) + (z & 0xFF);
 
+        // TPX1043_03_C
         // TPX1070_03_D TPX1070_03_E
+        // TPX4100_01_A
+        // TPX4120_01_A
+        // TPX4150_01_A
+        // TPX4190_01_A
         else if (sscanf(buf, "Target: TPX%x_%x_%x", &x, &y, &z) == 3)
             retval = ((x & 0xFFFF) << 16) + ((y & 0xFF) << 8) + (z & 0xFF);
 

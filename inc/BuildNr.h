@@ -20,6 +20,7 @@
  * Filename: inc/BuildNr.h
  */
 
+#define APPLICATION_NAME "FarosPLC"
 
 /* application build number: */
 #define PRODUCT_BUILD 4001

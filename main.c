@@ -39,21 +39,7 @@
 #include <sched.h>
 #include <unistd.h>
 #include <ucontext.h>
-#if defined(RTS_CFG_MECT_RETAIN)
-
-/*
- * FIXME: remove old style mect retentives
- * from #include <linux/pwrsignal.h>
- * i.e. imx_mect/ltib/rootfs/usr/src/linux/include/linux/pwrsignal.h
- */
-#define SIGPWRFAIL 44
-#define PID_FILE "signalconfpid"
-#define PID_PATH "/sys/kernel/debug/signalconfpid"
-
-#include <sys/ioctl.h>
-#endif
 #include <getopt.h>
-#include <sys/reboot.h> // and not <linux/reboot.h>
 
 #include "inc.data/dataMain.h" // dataEngineStop()
 
@@ -77,7 +63,7 @@ volatile sig_atomic_t term_handler_active	= 0;
 volatile sig_atomic_t crash_handler_active	= 0;
 volatile sig_atomic_t log_ignore_crash		= 0;
 
-static char *app_name = "FarosPLC"; // NULL;
+static char *app_name = APPLICATION_NAME; // NULL;
 
 int configfd;
 
@@ -88,8 +74,6 @@ void crash_handler(int signum, siginfo_t *siginfo, void *context);
 void pwrfail_handler(int signum, siginfo_t *siginfo, void *context);
 
 static char *get_signal(int signum);
-
-IEC_UINT writepid(void);
 
 void ReleaseResources(void);
 
@@ -357,24 +341,6 @@ int main(int argc, char *argv[])
     {
         fprintf(stdout, "sigaction (SIGTRAP) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
     }
-#if defined(RTS_CFG_MECT_RETAIN)
-    /* Install Dump Retentive Handler
-     * ------------------------------------------------------------------------
-     */
-    new_action.sa_sigaction = pwrfail_handler;
-    if (sigaction(SIGPWRFAIL, &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGPWRFAIL) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    }
-
-    /* kernel needs to know our pid to be able to send us a signal ->
-     * we use debugfs for this -> do not forget to mount the debugfs!
-     */
-#ifdef __XENO__
-    writepid();
-#endif
-
-#endif
 
     /* Set Scheduling Parameters
      * ------------------------------------------------------------------------
@@ -705,54 +671,6 @@ void crash_handler(int signum, siginfo_t *siginfo, void *context)
     raise(signum);
 }
 
-#if defined(RTS_CFG_MECT_RETAIN)
-/**
- * power fail handler
- *
- */
-
-void pwrfail_handler(int signum, siginfo_t *siginfo, void *context)
-{
-    int n;
-    (void)signum;
-    (void)siginfo;
-    (void)context;
-
-    // immediately block the engine and sync the retentive file
-    dataEnginePwrFailStop();
-
-    // in case of power hole we will have the chance of rebooting
-    for (n = 0; n < 500000000; ++n)
-        ;
-    reboot(RB_POWER_OFF); // actually a reset on i.MX28, maybe also RB_AUTOBOOT but not RB_HALT_SYSTEM
-
-    // unreachable code
-    fputs("pwrfail_handler: ... reboot() returned ????\n", stderr);
-    while (1)
-        ;
-}
-
-/* kernel needs to know our pid to be able to send us a signal ->
- * we use debugfs for this -> do not forget to mount the debugfs!
- */
-IEC_UINT writepid(void)
-{
-    char buf[10];
-
-    configfd = open(PID_PATH, O_CREAT | O_WRONLY, S_IRUSR|S_IWUSR);
-    if (configfd < 0) {
-        fprintf(stderr, "open '%s' failed (reason:%d (%s))\r\n", PID_FILE, os_errno, OS_STRERROR);
-        RETURN(ERR_ERROR);
-    }
-    sprintf(buf, "%i", getpid());
-    if (write(configfd, buf, strlen(buf) + 1) < 0) {
-        fprintf(stderr, "write '%s' failed (reason:%d (%s))\r\n", buf, os_errno, OS_STRERROR);
-        RETURN(ERR_ERROR);
-    }
-    RETURN(OK);
-}
-#endif
-
 /* ---------------------------------------------------------------------------- */
 /**
  * get_signal
@@ -767,9 +685,6 @@ static char *get_signal(int signum)
         case SIGSEGV: return "SIGSEGV";
         case SIGBUS:  return "SIGBUS";
         case SIGTRAP: return "SIGTRAP";
-#if defined(RTS_CFG_MECT_RETAIN)
-        case SIGPWRFAIL: return "SIGPWRFAIL";
-#endif
         case SIGINT:  return "SIGINT";
         default :
         {

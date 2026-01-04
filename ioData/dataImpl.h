@@ -98,87 +98,98 @@ static inline uint64_t rt_timer_read()
 #define XX_GPIO_CLR_69(n)
 #endif
 
-#define PLC_time          5390
-#define PLC_timeMin       5391
-#define PLC_timeMax       5392
-#define PLC_timeWin       5393
-#define PLC_Version       5394
-#define PLC_EngineStatus  5395
-#define PLC_ResetValues   5396
-#define PLC_buzzerOn      5397
-#define PLC_PLC_Version   5398 // UINT;3;[RW] viewable in hmi menu > info
-#define PLC_HMI_Version   5399 // UINT;3;[RW] viewable in hmi menu > info
+#define PLC_time             5390
+#define PLC_timeMin          5391
+#define PLC_timeMax          5392
+#define PLC_timeWin          5393
+#define PLC_Version          5394
+#define PLC_EngineStatus     5395
+#define PLC_ResetValues      5396
+#define PLC_buzzerOn         5397
+#define PLC_PLC_Version      5398 // UINT;3;[RW] viewable in hmi menu > info
+#define PLC_HMI_Version      5399 // UINT;3;[RW] viewable in hmi menu > info
 
-#define PLC_5400          5400 // TPLC100_01_AA/AB CH0_NETRUN
-#define PLC_5401          5401 // TPLC100_01_AA/AB CH0_NETGOOD
-#define PLC_5402          5402 // TPLC100_01_AA/AB CH0_NETERR
-#define PLC_5403          5403 // TPLC100_01_AA/AB CH0_NETRST
-#define PLC_5404          5404 // TPLC100_01_AA/AB CH0_NETDIS
-#define PLC_5405          5405 // TPLC100_01_AA/AB CH0_01_NODERUN
-#define PLC_5406          5406 // TPLC100_01_AA/AB CH0_01_NODEGOOD
-#define PLC_5407          5407 // TPLC100_01_AA/AB CH0_01_NODEERR
-#define PLC_5408          5408 // TPLC100_01_AA/AB CH0_01_NODERST
-#define PLC_5409          5409 // TPLC100_01_AA/AB CH0_01_NODEDIS
+#define PLC_5400             5400 // TPLC100_01_AA/AB CH0_NETRUN
+#define PLC_5401             5401 // TPLC100_01_AA/AB CH0_NETGOOD
+#define PLC_5402             5402 // TPLC100_01_AA/AB CH0_NETERR
+#define PLC_5403             5403 // TPLC100_01_AA/AB CH0_NETRST
+#define PLC_5404             5404 // TPLC100_01_AA/AB CH0_NETDIS
+#define PLC_5405             5405 // TPLC100_01_AA/AB CH0_01_NODERUN
+#define PLC_5406             5406 // TPLC100_01_AA/AB CH0_01_NODEGOOD
+#define PLC_5407             5407 // TPLC100_01_AA/AB CH0_01_NODEERR
+#define PLC_5408             5408 // TPLC100_01_AA/AB CH0_01_NODERST
+#define PLC_5409             5409 // TPLC100_01_AA/AB CH0_01_NODEDIS
 
-#define PLC_Year          5410 // [RO] 2017
-#define PLC_Month         5411 // [RO] 1..12
-#define PLC_Day           5412 // [RO] 1..31
-#define PLC_Hours         5413 // [RO] 0..23
-#define PLC_Minutes       5414 // [RO] 0..59
-#define PLC_Seconds       5415 // [RO] 0..59
-#define PLC_UPTIME_s      5416 // UDINT;0;[RO] Uptime in seconds (wraps in 136 years)
-#define PLC_UPTIME_cs     5417 // UDINT;0;[RO] Uptime in centiseconds = 10 ms (wraps in 497 days)
-#define PLC_WATCHDOGEN    5418 // BIT;;[RW] Enable Watchdog
-#define PLC_WATCHDOG_ms   5419 // UDINT;0;[RW] Reset Watchdog Timer
+#define PLC_Year             5410 // [RO] 2017
+#define PLC_Month            5411 // [RO] 1..12
+#define PLC_Day              5412 // [RO] 1..31
+#define PLC_Hours            5413 // [RO] 0..23
+#define PLC_Minutes          5414 // [RO] 0..59
+#define PLC_Seconds          5415 // [RO] 0..59
+#define PLC_UPTIME_s         5416 // UDINT;0;[RO] Uptime in seconds (wraps in 136 years)
+#define PLC_UPTIME_cs        5417 // UDINT;0;[RO] Uptime in centiseconds = 10 ms (wraps in 497 days)
+#define PLC_WATCHDOGEN       5418 // BIT;;[RW] Enable Watchdog
+#define PLC_WATCHDOG_ms      5419 // UDINT;0;[RW] Reset Watchdog Timer
 
-#define PLC_PRODUCT_ID    5420 // UDINT;0;[RO] 0x100803AC <--> TPAC1008_03_AC
-#define PLC_SERIAL_NUMBER 5421 // UDINT;0;[RO] 2019014321 <--> 2019014321
-#define PLC_HMI_PAGE      5422 // DINT;0;[RW] 0x100 <--> page100; -1 <--> menu; ...
+#define PLC_PRODUCT_ID       5420 // UDINT;0;[RO] 0x100803AC <--> TPAC1008_03_AC
+#define PLC_SERIAL_NUMBER    5421 // UDINT;0;[RO] 2019014321 <--> 2019014321
+#define PLC_HMI_PAGE         5422 // DINT;0;[RW] 0x100 <--> page100; -1 <--> menu; ...
+#define PLC_MS_VERSION       5423 // UDINT;0;[RO] 0x03030A <--> Mect Suite 3.3.10
+#define PLC_nBACKLIGHT       5424 // BYTE;0;[RW] 0..100 0=100% 100=0%
+#define PLC_CPU_TEMP         5425 // INT;1;[RO] 0.0 °C
+#define PLC_LPC_ERRORS_COUNT 5426 // UDINT;0;[RO] LPC communication errors counter
+#define PLC_LPC_ERRORS_MASK  5427 // UDINT;0;[RO] LPC communication errors mask
+#define PLC_LPC_RESERVED_3   5428 // UDINT;0;[RO] LPC reserved 3
+#define PLC_LPC_RESERVED_4   5429 // UDINT;0;[RO] LPC reserved 4
+#define PLC_LPC_RESERVED_5   5430 // UDINT;0;[RO] LPC reserved 5
+#define PLC_LPC_RESERVED_6   5431 // UDINT;0;[RO] LPC reserved 6
+#define PLC_LPC_RESERVED_7   5432 // UDINT;0;[RO] LPC reserved 7
+#define PLC_LPC_RESERVED_8   5433 // UDINT;0;[RO] LPC reserved 8
 
-#define PLC_5430          5430
+#define PLC_5430             5430
 
-#define PLC_BEEP_VOLUME   5435 // BYTE;0[RW] when buzzerOn
-#define PLC_TOUCH_VOLUME  5436 // BYTE;0[RW] when QEvent::MouseButtonPress
-#define PLC_ALARM_VOLUME  5437 // BYTE;0[RW] when alarm
-#define PLC_BUZZER        5438 // UDINT;0[RW] 0x44332211 up=0x11[%] on=0x22[cs] off=0x33[cs] rep=0x44[times]
-#define PLC_FastIO_Ena    5439 // UDINT;0[RW] TPAC1008_03_AX=0x000000FF TPAC1005=0x0003FF01
-#define PLC_FastIO_Dir    5440 // UDINT;0[RW] TPAC1008_03_AX=0x0000000F TPAC1005=0x00020000
+#define PLC_BEEP_VOLUME      5435 // BYTE;0[RW] when buzzerOn
+#define PLC_TOUCH_VOLUME     5436 // BYTE;0[RW] when QEvent::MouseButtonPress
+#define PLC_ALARM_VOLUME     5437 // BYTE;0[RW] when alarm
+#define PLC_BUZZER           5438 // UDINT;0[RW] 0x44332211 up=0x11[%] on=0x22[cs] off=0x33[cs] rep=0x44[times]
+#define PLC_FastIO_Ena       5439 // UDINT;0[RW] TPAC1008_03_AX=0x000000FF TPAC1005=0x0003FF01
+#define PLC_FastIO_Dir       5440 // UDINT;0[RW] TPAC1008_03_AX=0x0000000F TPAC1005=0x00020000
 
-#define PLC_FastIO_1      5441 // BIT;;[RW] GPIO 2,14 PIN  21 SSP1_DATA0  TPAC1005=T2 TPAC1008_03_AX=FastOUT_1 TPX10xx_03_x=FastIN_1
-#define PLC_FastIO_2      5442 // BIT;;[RW] GPIO 0,17 PIN 131 GPMI_CE1N               TPAC1008_03_AX=FastOUT_2 TPX10xx_03_x=FastIN_2
-#define PLC_FastIO_3      5443 // BIT;;[RW] GPIO 2,12 PIN  11 SSP1_SCK                TPAC1008_03_AX=FastOUT_3 TPX10xx_03_x=FastIN_3
-#define PLC_FastIO_4      5444 // BIT;;[RW] GPIO 3,06 PIN  78 AUART1_CTS              TPAC1008_03_AX=FastOUT_4 TPX10xx_03_x=FastIN_4
-#define PLC_FastIO_5      5445 // BIT;;[RW] GPIO 2,20 PIN   7 SSP2_SS1                TPAC1008_03_AX=FastIN_1  TPX10xx_03_x=FastOUT_1
-#define PLC_FastIO_6      5446 // BIT;;[RW] GPIO 3,02 PIN  70 AUART0_CTS              TPAC1008_03_AX=FastIN_2  TPX10xx_03_x=FastOUT_2
-#define PLC_FastIO_7      5447 // BIT;;[RW] GPIO 3,04 PIN  81 AUART1_RX               TPAC1008_03_AX=FastIN_3  TPX10xx_03_x=FastOUT_3
-#define PLC_FastIO_8      5448 // BIT;;[RW] GPIO 3,05 PIN  65 AUART1_TX               TPAC1008_03_AX=FastIN_4  TPX10xx_03_x=FastOUT_4
+#define PLC_FastIO_1         5441 // BIT;;[RW] GPIO 2,14 PIN  21 SSP1_DATA0  TPAC1005=T2 TPAC1008_03_AX=FastOUT_1 TPX10xx_03_x=FastIN_1
+#define PLC_FastIO_2         5442 // BIT;;[RW] GPIO 0,17 PIN 131 GPMI_CE1N               TPAC1008_03_AX=FastOUT_2 TPX10xx_03_x=FastIN_2
+#define PLC_FastIO_3         5443 // BIT;;[RW] GPIO 2,12 PIN  11 SSP1_SCK                TPAC1008_03_AX=FastOUT_3 TPX10xx_03_x=FastIN_3
+#define PLC_FastIO_4         5444 // BIT;;[RW] GPIO 3,06 PIN  78 AUART1_CTS              TPAC1008_03_AX=FastOUT_4 TPX10xx_03_x=FastIN_4
+#define PLC_FastIO_5         5445 // BIT;;[RW] GPIO 2,20 PIN   7 SSP2_SS1                TPAC1008_03_AX=FastIN_1  TPX10xx_03_x=FastOUT_1
+#define PLC_FastIO_6         5446 // BIT;;[RW] GPIO 3,02 PIN  70 AUART0_CTS              TPAC1008_03_AX=FastIN_2  TPX10xx_03_x=FastOUT_2
+#define PLC_FastIO_7         5447 // BIT;;[RW] GPIO 3,04 PIN  81 AUART1_RX               TPAC1008_03_AX=FastIN_3  TPX10xx_03_x=FastOUT_3
+#define PLC_FastIO_8         5448 // BIT;;[RW] GPIO 3,05 PIN  65 AUART1_TX               TPAC1008_03_AX=FastIN_4  TPX10xx_03_x=FastOUT_4
 
-#define PLC_FastIO_9      5449 // BIT;;[RW] GPIO 2,24 PIN 286 SSP3_SCK    TPAC1005=T1 TP*=PFO
-#define PLC_FastIO_10     5450 // BIT;;[RW] GPIO 2,27 PIN  15 SSP3_SS0    TPAC1005=T3
-#define PLC_FastIO_11     5451 // BIT;;[RW] GPIO 2,17 PIN   1 SSP2_MOSI   TPAC1005=T4 TP*=RTC:SSP2_MOSI
-#define PLC_FastIO_12     5452 // BIT;;[RW] GPIO 2,18 PIN 288 SSP2_MISO   TPAC1005=T5 TP*=RTC:SSP2_MISO
-#define PLC_FastIO_13     5453 // BIT;;[RW] GPIO 2,16 PIN 280 SSP2_SCK    TPAC1005=T6 TP*=RTC:SSP2_SCK
-#define PLC_FastIO_14     5454 // BIT;;[RW] GPIO 2,19 PIN   4 SSP2_SS0    TPAC1005=T7 TP*=RTC:SSP2_S0
-#define PLC_FastIO_15     5455 // BIT;;[RW] GPIO 2,21 PIN  18 SSP2_SS2    TPAC1005=T8 TP*=CS
-#define PLC_FastIO_16     5456 // BIT;;[RW] GPIO 2,25 PIN   9 SSP3_MOSI   TPAC1005=T9 TPAC1008*=RESET_WIFI
+#define PLC_FastIO_9         5449 // BIT;;[RW] GPIO 2,24 PIN 286 SSP3_SCK    TPAC1005=T1 TP*=PFO
+#define PLC_FastIO_10        5450 // BIT;;[RW] GPIO 2,27 PIN  15 SSP3_SS0    TPAC1005=T3
+#define PLC_FastIO_11        5451 // BIT;;[RW] GPIO 2,17 PIN   1 SSP2_MOSI   TPAC1005=T4 TP*=RTC:SSP2_MOSI
+#define PLC_FastIO_12        5452 // BIT;;[RW] GPIO 2,18 PIN 288 SSP2_MISO   TPAC1005=T5 TP*=RTC:SSP2_MISO
+#define PLC_FastIO_13        5453 // BIT;;[RW] GPIO 2,16 PIN 280 SSP2_SCK    TPAC1005=T6 TP*=RTC:SSP2_SCK
+#define PLC_FastIO_14        5454 // BIT;;[RW] GPIO 2,19 PIN   4 SSP2_SS0    TPAC1005=T7 TP*=RTC:SSP2_S0
+#define PLC_FastIO_15        5455 // BIT;;[RW] GPIO 2,21 PIN  18 SSP2_SS2    TPAC1005=T8 TP*=CS
+#define PLC_FastIO_16        5456 // BIT;;[RW] GPIO 2,25 PIN   9 SSP3_MOSI   TPAC1005=T9 TPAC1008*=RESET_WIFI
 
-#define PLC_FastIO_17     5457 // BIT;;[RW] GPIO 2,26 PIN   3 SSP3_MISO   TPAC1005=T10
-#define PLC_FastIO_18     5458 // BIT;;[RW] GPIO 2, 9 PIN 275 SSP0_DETECT TPAC1005=GPIO_A
-#define PLC_FastIO_19     5459 // BIT;;[RW] GPIO 4,20 PIN 230 JTAG_RTCK   TPAC1005=GPIO_B
-#define PLC_FastIO_20     5460
-#define PLC_FastIO_21     5461
-#define PLC_FastIO_22     5462
-#define PLC_FastIO_23     5463
-#define PLC_FastIO_24     5464
+#define PLC_FastIO_17        5457 // BIT;;[RW] GPIO 2,26 PIN   3 SSP3_MISO   TPAC1005=T10
+#define PLC_FastIO_18        5458 // BIT;;[RW] GPIO 2, 9 PIN 275 SSP0_DETECT TPAC1005=GPIO_A
+#define PLC_FastIO_19        5459 // BIT;;[RW] GPIO 4,20 PIN 230 JTAG_RTCK   TPAC1005=GPIO_B
+#define PLC_FastIO_20        5460
+#define PLC_FastIO_21        5461
+#define PLC_FastIO_22        5462
+#define PLC_FastIO_23        5463
+#define PLC_FastIO_24        5464
 
-#define PLC_FastIO_25     5465
-#define PLC_FastIO_26     5466
-#define PLC_FastIO_27     5467
-#define PLC_FastIO_28     5468
-#define PLC_FastIO_29     5469
-#define PLC_FastIO_30     5470
-#define PLC_FastIO_31     5471
-#define PLC_FastIO_32     5472
+#define PLC_FastIO_25        5465
+#define PLC_FastIO_26        5466
+#define PLC_FastIO_27        5467
+#define PLC_FastIO_28        5468
+#define PLC_FastIO_29        5469
+#define PLC_FastIO_30        5470
+#define PLC_FastIO_31        5471
+#define PLC_FastIO_32        5472
 
 // -------------------------------------------------------------------------------------------
 

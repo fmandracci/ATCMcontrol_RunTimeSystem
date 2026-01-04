@@ -98,7 +98,7 @@ void *datasyncThread(void *statusAdr)
 
     // exit
     // XX_GPIO_CLR(2);
-    fprintf(stderr, "EXITING: datasyncThread\n");
+    fprintf(stderr, "[%s]: EXITING\n", __func__);
     *threadStatusPtr = EXITING;
     return NULL;
 }

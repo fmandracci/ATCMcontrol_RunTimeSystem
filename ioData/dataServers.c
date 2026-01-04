@@ -37,8 +37,8 @@ static inline void updateServerBusyTime(u_int32_t s);
 
 void *serverThread(void *arg)
 {
-    struct ServerStruct *theServer = (struct ServerStruct *)arg;
-    u_int32_t s = (theServer - &theServer[0]) / sizeof(struct ServerStruct);
+    u_int32_t s = (u_int32_t)arg;
+    struct ServerStruct *theServer = &theServers[s];
     u_int8_t query[MODBUS_TCP_MAX_ADU_LENGTH];
     int master_socket;
     int rc;
