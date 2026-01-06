@@ -16,20 +16,13 @@
  * FarosPLC. If not, see http://www.gnu.org/licenses/.
 */
 
-/*
- * Filename: main.c (ex fcrts/fcMain.c)
- */
+#include "plc/plc.h"
 
-/* ----  Local Defines:   ----------------------------------------------------- */
-
-#define __4CFILE__ "fcMain.c"
-
-/* ----  Includes:	 ---------------------------------------------------------- */
-
-#include "inc/stdInc.h"
-
-#include "inc.fc/fcDef.h"
-
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <errno.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -41,47 +34,24 @@
 #include <ucontext.h>
 #include <getopt.h>
 
-#include "inc.data/dataMain.h" // dataEngineStop()
+#include "src/dataImpl.h"
 
-/* ----  Local Defines:   ----------------------------------------------------- */
-#define MSR_EE			(1<<15) 		/* External Interrupt Enable		*/
-#define MSR_PR			(1<<14) 		/* Problem State / Privilege Level	*/
-#define MSR_FP			(1<<13) 		/* Floating Point enable			*/
-#define MSR_ME			(1<<12) 		/* Machine Check Enable 			*/
-#define MSR_IR			(1<<5)			/* Instruction Relocate 			*/
-#define MSR_DR			(1<<4)			/* Data Relocate					*/
+// ----------------------------------------------------------------------------
 
-#define LOG_FILE_1		"/local/root/crash_trace"
-#define LOG_FILE_2		"/dev/console"
+#undef VERBOSE_DEBUG
 
-//#define DBG_MAIN
-//#define MECT_RETAIN_DEBUG
+// ----------------------------------------------------------------------------
 
-/* ----  Global Variables:	 -------------------------------------------------- */
+static int do_exit = 0;
 
-volatile sig_atomic_t term_handler_active	= 0;
-volatile sig_atomic_t crash_handler_active	= 0;
-volatile sig_atomic_t log_ignore_crash		= 0;
-
-static char *app_name = APPLICATION_NAME; // NULL;
-
-int configfd;
-
-/* ----  Local Functions:	--------------------------------------------------- */
+// ----------------------------------------------------------------------------
 
 void termination_handler(int signum);
-void crash_handler(int signum, siginfo_t *siginfo, void *context);
 void pwrfail_handler(int signum, siginfo_t *siginfo, void *context);
 
-static char *get_signal(int signum);
+// ----------------------------------------------------------------------------
 
-void ReleaseResources(void);
-
-/* ----  Implementations:	--------------------------------------------------- */
-
-/* ---------------------------------------------------------------------------- */
-
-/* Long options */
+static char short_options[] = "vxpo";
 static struct option long_options[] = {
     {"version",  no_argument,        NULL, 'v'},
     {"xx_gpio",  no_argument,        NULL, 'x'},
@@ -90,18 +60,10 @@ static struct option long_options[] = {
     {NULL,       no_argument,        NULL,  0}
 };
 
-/*
- * Short options.
- * FIXME: KEEP THEIR LETTERS IN SYNC WITH THE RETURN VALUE
- * FROM THE LONG OPTIONS!
- */
-static char short_options[] = "vxpo";
-
 static int application_options(int argc, char *argv[])
 {
     int option_index = 0;
     int c = 0, n;
-    char version[VMM_MAX_IEC_STRLEN];
 
     if (argc <= 0)
         return 0;
@@ -112,51 +74,47 @@ static int application_options(int argc, char *argv[])
     while ((c = getopt_long(argc, argv, short_options, long_options, &option_index)) != -1) {
         switch (c) {
             case 'v':
-#if 0
-                if (sysGetVersionInfo(version) != OK) {
-                    sprintf(version, "(unknown)");
-                }
-#else
-                dataGetVersionInfo(version);
-#endif
-                printf("%s version: %s\n", argv[0], version);
-#if defined(RTS_CFG_DEBUG_GPIO)
-                printf("\tXX_GPIO enabled\n");
-#endif
-
+                printf("%s version: v%d.%03d GPL\n", argv[0], REVISION_HI, REVISION_LO);
                 exit(0);
 
             case 'x':
-                fprintf(stderr, "xx_gpio testing:\n");
-                XX_GPIO_INIT();
-                fprintf(stderr, "    XX_GPIO_CONFIG(");
-                for (n = 0; n < XX_GPIO_MAX_TEST; ++n) {
-                    fprintf(stderr, "%02d, 1", n);
-                    XX_GPIO_ENABLE(n);
-                    XX_GPIO_CONFIG(n, 1);
-                    fprintf(stderr, ")\n");
+                fprintf(stderr, "xx_gpio testing (%s printing):\n", verbose_print_enabled?"with":"without");
+                xx_pthread_setsched(SCHED_FIFO, XX_PRIO_HIGH); // main, gpio testing
+                xx_gpio_init();
+                fprintf(stderr, "    xx_gpio_config(");
+                for (n = XX_GPIO_MIN_TEST; n < XX_GPIO_MAX_TEST; ++n) {
+                    fprintf(stderr, " (%02d, 1", n);
+                    xx_gpio_enable(n);
+                    xx_gpio_config(n, 1);
+                    fprintf(stderr, ")");
                 }
-                fprintf(stderr, ")\n");
+                fprintf(stderr, " )\n");
                 while (1) {
-                    int n;
-                    fprintf(stderr, "    XX_GPIO_SET(");
-                    for (n = 0; n < XX_GPIO_MAX_TEST; ++n) {
-                        fprintf(stderr, "%02d ", n);
-                        XX_GPIO_SET(n);
-                        XX_GPIO_CLR(n);
-                        XX_GPIO_SET(n);
+                    if (verbose_print_enabled)
+                        fprintf(stderr, "\txx_gpio_set(");
+                    xx_gpio_tac_set();
+                    for (n = XX_GPIO_MIN_TEST; n < XX_GPIO_MAX_TEST; ++n) {
+                        if (verbose_print_enabled)
+                            fprintf(stderr, " %02d", n);
+                        xx_gpio_tic_set();
+                        xx_gpio_set(n);
+                        xx_gpio_tic_clr();
                     }
-                    fprintf(stderr, "), XX_GPIO_CLR(");
-                    for (n = 0; n < XX_GPIO_MAX_TEST; ++n) {
-                        fprintf(stderr, "%02d ", n);
-                        XX_GPIO_CLR(n);
-                        XX_GPIO_SET(n);
-                        XX_GPIO_CLR(n);
+                    if (verbose_print_enabled)
+                        fprintf(stderr, " ), xx_gpio_clr(");
+                    for (n = XX_GPIO_MIN_TEST; n < XX_GPIO_MAX_TEST; ++n) {
+                        if (verbose_print_enabled)
+                            fprintf(stderr, " %02d", n);
+                        xx_gpio_tic_set();
+                        xx_gpio_clr(n);
+                        xx_gpio_tic_clr();
                     }
-                    fprintf(stderr, ")\n");
-                    sleep(1);
+                    xx_gpio_tac_clr();
+                    if (verbose_print_enabled)
+                        fprintf(stderr, " )\n");
                 }
-                XX_GPIO_CLOSE();
+                // never reached if Ctrl+C
+                xx_gpio_close();
                 exit(0);
 
         case 'p':
@@ -173,280 +131,209 @@ static int application_options(int argc, char *argv[])
                 break;
         }
     }
-
     return 0;
 }
 
-/**
- * main
- */
-int main(int argc, char *argv[])
-{
-    IEC_UINT uRes;
+// ----------------------------------------------------------------------------
 
-#ifdef __XENO__
-    printf("Xenomai enabled\n");
+int setup()
+{
     struct rlimit rlimit;
-    int retval;
-    rlimit.rlim_cur = rlimit.rlim_max = 128 * 1024;
-    retval = setrlimit(RLIMIT_STACK, &rlimit);
-#else
-    struct rlimit rlimit;
-    int retval;
 
     rlimit.rlim_cur = rlimit.rlim_max = 1024 * 1024;
-    retval = setrlimit(RLIMIT_STACK, &rlimit);
-    if (retval) {
-        perror("setrlimit");
-        return 1;
+    if (setrlimit(RLIMIT_STACK, &rlimit)) {
+        fprintf(stderr, "[%s] error in setrlimit(): %s\n", __func__, strerror(errno));
+        return -1;
     }
     bzero(&rlimit, sizeof(rlimit));
-    retval = getrlimit(RLIMIT_MSGQUEUE, &rlimit);
-    fprintf(stderr, "%s: getrlimit RLIMIT_MSGQUEUE: cur=%lu max=%lu, retval=%d\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, retval);
+    if (getrlimit(RLIMIT_MSGQUEUE, &rlimit)) {
+        fprintf(stderr, "[%s]: getrlimit RLIMIT_MSGQUEUE: cur=%lu max=%lu, %s)\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, strerror(errno));
+        return -1;
+    }
     rlimit.rlim_cur = 8192*8*52;
     rlimit.rlim_max = rlimit.rlim_cur;
-    retval = setrlimit(RLIMIT_MSGQUEUE, &rlimit);
-    fprintf(stderr, "%s: setrlimit RLIMIT_MSGQUEUE: cur=%lu max=%lu, retval=%d\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, retval);
-
+    if (setrlimit(RLIMIT_MSGQUEUE, &rlimit)) {
+        fprintf(stderr, "[%s]: setrlimit RLIMIT_MSGQUEUE: cur=%lu max=%lu, %s\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, strerror(errno));
+        return -1;
+    }
     bzero(&rlimit, sizeof(rlimit));
-    retval = getrlimit(RLIMIT_NOFILE, &rlimit);
-    fprintf(stderr, "%s: getrlimit RLIMIT_NOFILE: cur=%lu max=%lu, retval=%d\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, retval);
+    if (getrlimit(RLIMIT_NOFILE, &rlimit)) {
+        fprintf(stderr, "[%s]: getrlimit RLIMIT_NOFILE: cur=%lu max=%lu, %s\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, strerror(errno));
+        return -1;
+    }
 #if 0
     rlimit.rlim_cur = 2048;
     retval = setrlimit(RLIMIT_NOFILE, &rlimit);
-    fprintf(stderr, "%s: setrlimit RLIMIT_NOFILE: cur=%lu max=%lu, retval=%d\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, retval);
-#endif
+    fprintf(stderr, "[%s]: setrlimit RLIMIT_NOFILE: cur=%lu max=%lu, retval=%d\n", __func__, rlimit.rlim_cur, rlimit.rlim_max, retval);
 #endif
     mlockall(MCL_CURRENT | MCL_FUTURE);
 
-    if (application_options(argc, argv) != 0) {
-        fprintf(stderr, "%s: command line option error.\n", __func__);
-        return 1;
-    }
-
-    // app_name = argv[0];
-
-    /* Enable Core Dumps
-     * ------------------------------------------------------------------------
-     */
+    /* Enable Core Dumps */
     if (FALSE)
     {
         struct rlimit infinit = {RLIM_INFINITY, RLIM_INFINITY};
         struct rlimit curr;
 
-        if (getrlimit(RLIMIT_CORE, &curr) == -1)
-        {
-            fprintf(stdout, "getrlimit failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+        if (getrlimit(RLIMIT_CORE, &curr)) {
+            fprintf(stdout, "getrlimit failed, %s\n", strerror(errno));
+            return -1;
         }
-
-        if (setrlimit(RLIMIT_CORE, &infinit) == -1)
-        {
-            fprintf(stdout, "setrlimit failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+        if (setrlimit(RLIMIT_CORE, &infinit)) {
+            fprintf(stdout, "setrlimit failed, %s\n", strerror(errno));
+            return -1;
         }
     }
 
     /* number of  processes  and  threads for  a real user ID */
     struct rlimit limit;
 
-    if (getrlimit(RLIMIT_NPROC, &limit) == -1) {
-        fprintf(stdout, "getrlimit failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    } else {
-        fprintf(stdout, "getrlimit RLIMIT_NPROC: cur=%lu max=%lu\n", limit.rlim_cur, limit.rlim_max);
+    if (getrlimit(RLIMIT_NPROC, &limit)) {
+        fprintf(stdout, "getrlimit failed, %s\n", strerror(errno));
+        return -1;
     }
+    fprintf(stdout, "getrlimit RLIMIT_NPROC: cur=%lu max=%lu\n", limit.rlim_cur, limit.rlim_max);
 
     struct sigaction new_action;
     struct sigaction old_action;
 
     new_action.sa_flags = 0;
-    if (sigemptyset(&new_action.sa_mask) == -1)
-    {
-        fprintf(stdout, "sigemptyset failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+    if (sigemptyset(&new_action.sa_mask)) {
+        fprintf(stdout, "sigemptyset failed, %s\n", strerror(errno));
+        return -1;
     }
 
-
-    /* Disable SIGHUP
-     * ------------------------------------------------------------------------
-     * Ignore detaching of a possible connected user's terminal.
-     */
+    /* Disable SIGHUP (ignore detaching of a possible connected user's terminal) */
     new_action.sa_handler = SIG_IGN;
-    if (sigaction(SIGHUP, &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGHUP) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+    if (sigaction(SIGHUP, &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGHUP) failed, %s\n", strerror(errno));
+        return -1;
     }
 
-
-    /* Install Termination Handler
-     * ------------------------------------------------------------------------
-     */
+    /* Install Termination Handler */
     new_action.sa_handler = termination_handler;
-
-    if (sigaction(SIGINT, NULL, &old_action) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGINT) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+    if (sigaction(SIGINT, NULL, &old_action)) {
+        fprintf(stdout, "sigaction (SIGINT) failed, %s\n", strerror(errno));
+        return -1;
     }
-    if (old_action.sa_handler != SIG_IGN)
-    {
-        if (sigaction(SIGINT, &new_action, NULL) == -1)
-        {
-            fprintf(stdout, "sigaction (SIGINT) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+    if (old_action.sa_handler != SIG_IGN) {
+        if (sigaction(SIGINT, &new_action, NULL)) {
+            fprintf(stdout, "sigaction (SIGINT) failed, %s\n", strerror(errno));
+            return -1;
+        }
+    }
+    if (sigaction(SIGTERM, NULL, &old_action)) {
+        fprintf(stdout, "sigaction (SIGTERM) failed, %s\n", strerror(errno));
+        return -1;
+    }
+    if (old_action.sa_handler != SIG_IGN) {
+        if (sigaction(SIGTERM, &new_action, NULL)) {
+            fprintf(stdout, "sigaction (SIGTERM) failed, %s\n", strerror(errno));
+            return -1;
         }
     }
 
-    if (sigaction(SIGTERM, NULL, &old_action) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGTERM) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+    /* Install Power Fail Handler */
+    new_action.sa_sigaction = pwrfail_handler;
+    if (sigaction(SIGPWR, &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGPWR) failed, %s\n", strerror(errno));
+        return -1;
     }
-    if (old_action.sa_handler != SIG_IGN)
-    {
-        if (sigaction(SIGTERM, &new_action, NULL) == -1)
-        {
-            fprintf(stdout, "sigaction (SIGTERM) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-        }
-    }
-
 
     /* Install Crash Handler
      * ------------------------------------------------------------------------
      */
     new_action.sa_sigaction = crash_handler;
-
-    if (sigemptyset(&new_action.sa_mask) == -1)
-    {
-        fprintf(stdout, "sigemptyset failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    }
-
     new_action.sa_flags = SA_SIGINFO | SA_NOMASK;
+    if (sigemptyset(&new_action.sa_mask)) {
+        fprintf(stdout, "sigemptyset failed, %s\n", strerror(errno));
+        return -1;
+    }
+    if (sigaction(SIGILL,  &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGILL) failed, %s\n", strerror(errno));
+        return -1;
+    }
+    if (sigaction(SIGFPE,  &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGFPE) failed, %s\n", strerror(errno));
+        return -1;
+    }
+    if (sigaction(SIGSEGV, &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGSEGV) failed, %s\n", strerror(errno));
+        return -1;
+    }
+    if (sigaction(SIGBUS,  &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGBUS) failed, %s\n", strerror(errno));
+        return -1;
+    }
+    if (sigaction(SIGTRAP, &new_action, NULL)) {
+        fprintf(stdout, "sigaction (SIGTRAP) failed, %s\n", strerror(errno));
+        return -1;
+    }
+    return 0;
+}
 
-    if (sigaction(SIGILL,  &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGILL) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
+// ----------------------------------------------------------------------------
+
+int main(int argc, char *argv[])
+{
+    if (application_options(argc, argv) != 0) {
+        fprintf(stderr, "[%s]: command line option error.\n", __func__);
+        return EXIT_FAILURE;
+    }    
+    if (setup()) {
+        return EXIT_FAILURE;
     }
 
-    if (sigaction(SIGFPE,  &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGFPE) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    }
-
-    if (sigaction(SIGSEGV, &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGSEGV) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    }
-
-    if (sigaction(SIGBUS,  &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGBUS) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    }
-
-    if (sigaction(SIGTRAP, &new_action, NULL) == -1)
-    {
-        fprintf(stdout, "sigaction (SIGTRAP) failed (reason:%d (%s))\r\n", os_errno, OS_STRERROR);
-    }
-
-    /* Set Scheduling Parameters
-     * ------------------------------------------------------------------------
-     */
-  #if ! defined(_POSIX_PRIORITY_SCHEDULING)
+    // set realtime scheduling
+#if ! defined(_POSIX_PRIORITY_SCHEDULING)
     #error Posix scheduling not defined in actual Linux kernel
-  #endif
-    // osPthreadSetSched(FC_SCHED_VMM, FC_PRIO_VMM) in vmKernel/vmmMain.c
+#endif
+    xx_pthread_setsched(SCHED_FIFO, XX_PRIO_HIGHEST);
 
-    /* Initialize Jiffies
-     * ------------------------------------------------------------------------
-     */
-  #if defined(_SOF_4CFC_SRC_)
-    uRes = fcInitJiffies();
-    if (uRes != OK)
-    {
-        RETURN(uRes);
+    // start the core thread
+    xx_gpio_init();
+    dataEngineStart();
+
+    // start the plc thread
+    pthread_t thePlcThread_id = XX_WRONG_THREAD;
+    enum threadStatus thePlcThreadStatus = NOT_STARTED;
+    if (xx_pthread_create(&thePlcThread_id, NULL, &plcEngineThread, &thePlcThreadStatus, "plcThread", 0) == 0) {
+        do {
+            xx_sleep_ms(THE_CONFIG_DELAY_ms);
+        } while (thePlcThreadStatus != RUNNING);
     }
-  #endif
 
+    // idle loop
+    while (! do_exit) {
+        xx_sleep_ms(THE_IDLE_DELAY_ms);
+    }
 
-    /* Run Main Loop
-     * ------------------------------------------------------------------------
-     */
-    uRes = osMain(argc, argv);
+    // stop the plc thread
+    plcEngineStop();
+    if (thePlcThread_id != XX_WRONG_THREAD) {
+        void *retval;
 
-    exit(uRes == OK ? EXIT_SUCCESS : EXIT_FAILURE);
+        pthread_join(thePlcThread_id, &retval);
+        thePlcThread_id = XX_WRONG_THREAD;
+        fprintf(stderr, "joined plc\n");
+    }
+
+    // stop the core thread
+    dataEngineStop();
+
+    return EXIT_SUCCESS;
 }
-
-
-/*------------------------------------------------------------------*/
-/**
- * fcSetSystemWatchdog
- *
- * Sets the watchdog to the value of MFP_WATCHDOG_TIME
- *
- * @return		OK if successful else error number
- */
-IEC_UINT fcSetSystemWatchdog()
-{
-  #if defined(_SOF_4CFC_SRC_)
-
-    int hWatchdog = open(FC_WATCHDOG_DEVICE, O_WRONLY, 0);
-    if (hWatchdog == -1)
-    {
-        RETURN(ERR_ERROR);
-    }
-
-    IEC_DINT  iWatchdogValue = FC_WATCHDOG_TIME;
-    IEC_UDINT dwWrite = write(hWatchdog, (IEC_CHAR *)&iWatchdogValue, sizeof(iWatchdogValue));
-
-    close(hWatchdog);
-
-    if (dwWrite != sizeof(iWatchdogValue))
-    {
-        RETURN(ERR_ERROR);
-    }
-  #endif
-
-    RETURN(OK);
-}
-
-
-/*------------------------------------------------------------------*/
-/**
- * ByeBye
- *
- */
-void ByeBye(void)
-{
-    char *sz;
-    srand(osGetTime32());
-
-    switch (rand() % 14)
-    {
-    case 0: sz = "Tschuess!";		break;
-    case 1: sz = "Bye-Bye!";		break;
-    case 2: sz = "Cheerio!";		break;
-    case 3: sz = "Cheers!"; 		break;
-    case 4: sz = "Auf Wiedersehen!";break;
-    case 5: sz = "See You!";		break;
-    case 6: sz = "Ade!";			break;
-    case 7: sz = "Salut!";			break;
-    case 8: sz = "Au Revoir!";		break;
-    case 9: sz = "Servus!"; 		break;
-    case 10:sz = "Ciao!";			break;
-    case 11:sz = "Adieu!";			break;
-    case 12:sz = "Pfiat Di!";		break;
-    case 13:sz = "Gruezi!"; 		break;
-    default:sz = "Servus!"; 		break;
-    }
-
-    printf("\r\n%s\r\n", sz);
-}
-
 
 /* ---------------------------------------------------------------------------- */
 /**
  * termination_handler
  *
  */
+volatile sig_atomic_t term_handler_active	  = 0;
 void termination_handler(int signum)
 {
     struct sigaction new_action;
 
-#ifdef DBG_MAIN
+#ifdef VERBOSE_DEBUG
     printf("%s!\n", __func__);
 #endif
     /* Avoid recursive call of this handler
@@ -454,9 +341,7 @@ void termination_handler(int signum)
     if (term_handler_active == 0) {
         term_handler_active = 1;
 
-         ReleaseResources();
-
-        //ByeBye();
+        do_exit = 1;
     }
 
     /* Forward the signal
@@ -469,243 +354,16 @@ void termination_handler(int signum)
     raise(signum);
 }
 
-
 /* ---------------------------------------------------------------------------- */
-/**
- * log_ignore_crash_handler
- *
- */
-void log_ignore_crash_handler(int signum, siginfo_t *siginfo, void *context)
+
+void pwrfail_handler(int signum, siginfo_t *siginfo, void *context)
 {
-    if (log_ignore_crash == 1)
-    {
-        log_ignore_crash = 0;
-
-      #if defined(_SOF_4CFC_SRC_)
-        ucontext_t *uc = (ucontext_t *)context;
-        struct pt_regs *regs = uc->uc_mcontext.regs;
-        regs->nip += 4;
-      #else
-        /* TODO fuer PC & DC
-         */
-
-      #endif
-    }
-    else
-    {
-        crash_handler(signum, siginfo, context);
-    }
-}
-
-
-/* ---------------------------------------------------------------------------- */
-/**
- * crash_handler
- *
- */
-void crash_handler(int signum, siginfo_t *siginfo, void *context)
-{
-  #if defined(_SOF_4CFC_SRC_)
-    ucontext_t *uc = (ucontext_t *)context;
-    struct pt_regs *regs = uc->uc_mcontext.regs;
-    int i;
-    unsigned long *sp;
-    unsigned long frame;
-    struct sigaction sa;
-  #endif
-
-    char buf[256];
-    int fd,len;
-
-    struct timeval	tv;
-    struct tm		tm;
-
+    (void)signum;
+    (void)siginfo;
     (void)context;
 
-    fd = open(LOG_FILE_1, O_WRONLY|O_APPEND|O_CREAT, S_IRUSR|S_IWUSR);
-    if (fd < 0)
-    {
-        fd = open(LOG_FILE_2, O_WRONLY|O_NOCTTY);
-    }
-
-    gettimeofday(&tv, NULL);
-    localtime_r(&tv.tv_sec, &tm);
-
-    len = sprintf(buf, "%04d/%02d/%02d %02d:%02d:%02d.%03d: ",
-                       tm.tm_year+1900,tm.tm_mon+1,tm.tm_mday,
-                       tm.tm_hour,tm.tm_min,tm.tm_sec,(int)(tv.tv_usec/1000));
-
-    len += sprintf(buf+len, "User Mode Exception - Signal: %s\n", get_signal(signum));
-    if (write(fd,buf,len)) {}
-
-  #if defined (RTS_CFG_SYSLOAD)
-
-    IEC_UINT uTask	= 0xffffu;
-    IEC_UINT uRes	= ldFindTask(getpid(), &uTask);
-
-    char szTask[100];
-
-    if (uRes == OK && uTask != 0xffffu)
-    {
-        uRes = ldGetTaskName(uTask, szTask);
-    }
-
-    if (uRes == OK && uTask != 0xffffu)
-    {
-        len = sprintf(buf, "APP: %s, TASK: %d/%lu(%s), ERRNO: %d, CODE: %08X\n",
-                           app_name, getpid(), pthread_self(), szTask, siginfo->si_errno, siginfo->si_code);
-    }
-    else
-    {
-        len = sprintf(buf, "APP: %s, TASK: %d, ERRNO: %d, CODE: %08X\n",
-                           app_name, getpid(), siginfo->si_errno, siginfo->si_code);
-    }
-  #else
-    len = sprintf(buf, "APP: %s, TASK: %d, ERRNO: %d, CODE: %08X\n",
-                       app_name, getpid(), siginfo->si_errno, siginfo->si_code);
-  #endif
-    if (write(fd,buf,len)) {}
-
-    len = sprintf(buf, "--------------------------------------------------------------------------\n");
-    if (write(fd,buf,len)) {}
-
-  #if defined(_SOF_4CFC_SRC_)
-    len = sprintf(buf, "NIP: %08lX CTR: %08lX LR: %08lX SP: %08lX REGS: %08lX TRAP: %04lX\n",
-                  regs->nip, regs->ctr, regs->link, regs->gpr[1],
-                  (unsigned long)regs, regs->trap);
-    write(fd,buf,len);
-
-    len = sprintf(buf, "CCR: %08lX XER: %08lX MSR: %08lX EE: %01x PR: %01x FP: %01x ME: %01x IR/DR: %01x%01x\n",
-                  regs->ccr, regs->xer, regs->msr,
-                  regs->msr&MSR_EE ? 1 : 0, regs->msr&MSR_PR ? 1 : 0,
-                  regs->msr&MSR_FP ? 1 : 0, regs->msr&MSR_ME ? 1 : 0,
-                  regs->msr&MSR_IR ? 1 : 0, regs->msr&MSR_DR ? 1 : 0);
-    write(fd,buf,len);
-
-    if (regs->trap == 0x300 || regs->trap == 0x600)
-    {
-        len = sprintf(buf, "DAR: %08lX, DSISR: %08lX\n", regs->dar, regs->dsisr);
-        write(fd,buf,len);
-    }
-
-    for (i = 0;  i < 32;  i++)
-    {
-        if ((i % 8) == 0)
-        {
-            len = sprintf(buf, "GPR%02d: ", i);
-        }
-
-        len += sprintf(buf+len, "%08lX ", regs->gpr[i]);
-        if ((i % 8) == 7)
-        {
-            len += sprintf(buf+len, "\n");
-            write(fd,buf,len);
-        }
-    }
-
-    len = sprintf(buf, "Stack: ");
-    write(fd,buf,len);
-
-    sp = (unsigned long*)regs->gpr[1];
-    i = 0;
-    len = 0;
-
-    log_ignore_crash = 0;
-    sa.sa_sigaction = log_ignore_crash_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_SIGINFO;
-    sigaction(SIGSEGV, &sa, NULL);
-
-    int bFirst = 1;
-
-    while (sp)
-    {
-        log_ignore_crash = 1;
-        frame = sp[1];
-        if (--log_ignore_crash)
-            break;
-
-        if (i++ % 7 == 0 && bFirst == 0)
-        {
-            len += sprintf(buf+len, "\n");
-            write(fd,buf,len);
-            len = 0;
-        }
-
-        bFirst = 0;
-
-        len += sprintf(buf+len, "%08lX ", frame);
-        if (i > 32)
-            break;
-
-        log_ignore_crash = 1;
-        sp = *(unsigned long**)sp;
-        if (--log_ignore_crash)
-            break;
-    }
-
-  #endif	/* _SOF_4CFC_SRC_ */
-
-    len += sprintf(buf+len, "\n\n");
-    if (write(fd,buf,len)) {}
-    close(fd);
-    sync();
-
-    /* Forward the signal
-     */
-
-    if (crash_handler_active != 0)
-    {
-        raise(signum);
-    }
-
-    crash_handler_active = 1;
-
-    struct sigaction new_action;
-
-    new_action.sa_flags = 0;
-    sigemptyset (&new_action.sa_mask);
-    new_action.sa_handler = SIG_DFL;
-
-    sigaction(signum, &new_action, NULL);
-    raise(signum);
+    // immediately block the engine and sync the retentive file
+    dataEnginePwrFailStop();
 }
 
 /* ---------------------------------------------------------------------------- */
-/**
- * get_signal
- *
- */
-static char *get_signal(int signum)
-{
-    switch (signum)
-    {
-        case SIGILL:  return "SIGILL";
-        case SIGFPE:  return "SIGFPE";
-        case SIGSEGV: return "SIGSEGV";
-        case SIGBUS:  return "SIGBUS";
-        case SIGTRAP: return "SIGTRAP";
-        case SIGINT:  return "SIGINT";
-        default :
-        {
-            static char szDummy[100];
-            sprintf(szDummy, "%d", signum);
-            return szDummy;
-        }
-    }
-}
-
-void ReleaseResources(void)
-{
-#ifdef DBG_MAIN
-    fprintf(stdout, "[%s] - Release resources...\n", __func__);
-#endif
-
-    dataEngineStop();
-
-#ifdef DBG_MAIN
-    fprintf(stdout, "[%s] - done.\n", __func__);
-#endif
-}
-/* ---------------------------------------------------------------------------- */
-
